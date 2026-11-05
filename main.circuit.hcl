@@ -35,6 +35,18 @@ locals {
   follower = "falcoctl-artifact-follow.service"
   masked   = "[ \"$(readlink /etc/systemd/system/${local.follower})\" = /dev/null ]"
 
+  # The falco versions dnf's versionlock holds, from dnf 4's
+  # "falco-0:0.45.2-1.*" or dnf 5's "Package name: falco" then "evr = 0.45.2-1".
+  locked = "dnf -q versionlock list 2>/dev/null | sed -n -e 's/^falco-[0-9]*:\\([^-]*\\)-.*/\\1/p' -e '/^Package name: falco$/{n;s/^evr = \\([^-]*\\)-.*/\\1/p;}'"
+
+  # Rocky's dnf 4 needs the versionlock plugin. Fedora's dnf 5 has it built in.
+  lock = join("; ", [
+    "set -e",
+    "command -v dnf5 >/dev/null || rpm -q python3-dnf-plugin-versionlock >/dev/null || dnf -y -q install python3-dnf-plugin-versionlock",
+    "dnf -q versionlock delete falco >/dev/null",
+    "dnf -q versionlock add falco-${var.falco_version} >/dev/null",
+  ])
+
   config_file = "/etc/falco/config.d/zz-conn3x.yaml"
   rules_file  = "/etc/falco/rules.d/conn3x.yaml"
 
@@ -93,6 +105,25 @@ circuit "falco" {
       key        = local.repo_key
       suites     = local.deb[each.key] ? ["stable"] : null
       components = ["main"]
+    }
+  }
+
+  # Holds falco at falco_version, so apt upgrade or dnf upgrade can't move it.
+  # A new falco_version moves the hold before the package step installs it.
+  # On Debian and Ubuntu, a pin rather than apt-mark hold: apt-get refuses to
+  # change a held package, even to the version asked for.
+  step "apt_pin" {
+    file {
+      path    = "/etc/apt/preferences.d/falco"
+      state   = var.hold_package && local.deb[each.key] ? "present" : "absent"
+      content = var.hold_package && local.deb[each.key] ? "Package: falco\nPin: version ${var.falco_version}\nPin-Priority: 1001\n" : null
+    }
+  }
+
+  step "dnf_lock" {
+    command {
+      command = local.deb[each.key] ? "true" : var.hold_package ? local.lock : "dnf -q versionlock delete falco >/dev/null"
+      unless  = local.deb[each.key] ? "true" : var.hold_package ? "[ \"$(${local.locked})\" = ${var.falco_version} ]" : "[ -z \"$(${local.locked})\" ]"
     }
   }
 

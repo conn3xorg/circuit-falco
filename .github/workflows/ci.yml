@@ -90,6 +90,12 @@ jobs:
       - name: Check the alerts again after the restart
         working-directory: examples/local
         run: *check
+      - name: Release the package hold, then check it's gone
+        working-directory: examples/local
+        run: |
+          conn3x apply -auto-approve -var hold_package=false
+          conn3x plan -detailed-exitcode -var hold_package=false
+          sudo podman exec -i circuit-falco sh -s released < check.sh
       - name: Clean up
         if: always()
         working-directory: examples/local

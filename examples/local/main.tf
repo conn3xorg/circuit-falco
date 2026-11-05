@@ -3,6 +3,11 @@ variable "port" {
   default = 2222
 }
 
+variable "hold_package" {
+  type    = bool
+  default = true
+}
+
 module "falco" {
   source = "../.."
 
@@ -11,7 +16,8 @@ module "falco" {
   ssh_private_key_file = "./id_ed25519"
   ssh_known_hosts_file = "./known_hosts"
 
-  priority = "notice"
+  priority     = "notice"
+  hold_package = var.hold_package
 
   # A rule of your own, built on the open_read macro from Falco's rules.
   rules = <<-EOT

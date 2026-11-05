@@ -1,8 +1,20 @@
 #!/usr/bin/env sh
 # Runs on the host: reads /etc/shadow, which Falco's default rules flag,
 # and the canary file the example's own rule watches, then checks Falco
-# logged an alert for each. CI pipes it in with podman exec.
+# logged an alert for each. CI pipes it in with podman exec. With "released"
+# as its argument, it checks the package hold is gone rather than in place.
 set -eu
+# The hold: an apt pin on Debian and Ubuntu, a dnf versionlock elsewhere.
+if [ "${1:-held}" = held ]; then
+  if command -v apt-get >/dev/null; then
+    grep -qx 'Package: falco' /etc/apt/preferences.d/falco
+  else
+    dnf -q versionlock list 2>/dev/null | grep -q falco
+  fi
+elif [ -e /etc/apt/preferences.d/falco ] || dnf -q versionlock list 2>/dev/null | grep -q falco; then
+  echo "falco is still held." >&2
+  exit 1
+fi
 unit=falco-modern-bpf.service
 systemctl is-enabled "$unit"
 systemctl is-active "$unit"

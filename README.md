@@ -81,7 +81,7 @@ Before the circuit runs, the `conn3x_host` data source reads each host's distrib
 
 1. Checks the kernel exposes BTF.
 2. Masks `falcoctl-artifact-follow.service`, or with `rules_updates`, unmasks it.
-3. Adds Falco's repository, `download.falco.org/packages`, with its signing key, and installs the `falco` package at `falco_version`. The package picks the modern eBPF probe, and enables and starts `falco-modern-bpf.service`, which `falco.service` is an alias of.
+3. Adds Falco's repository, `download.falco.org/packages`, with its signing key, holds `falco` at `falco_version` unless `hold_package` is false, and installs the `falco` package at `falco_version`. The package picks the modern eBPF probe, and enables and starts `falco-modern-bpf.service`, which `falco.service` is an alias of.
 4. Writes `/etc/falco/config.d/zz-conn3x.yaml` with `priority`, `json_output` and the health webserver's address, after checking it with `falco --dry-run` alongside the other files in `config.d`. A change restarts Falco.
 5. Writes `rules` to `/etc/falco/rules.d/conn3x.yaml`, or removes the file when `rules` is empty. A change reloads Falco.
 6. Keeps `falco-modern-bpf.service` enabled and running.
@@ -98,6 +98,10 @@ journalctl -u falco-modern-bpf -f
 
 `priority` sets the lowest priority logged. Falco's own default, `debug`, logs every rule that fires. `notice` or `warning` is quieter. With `json_output`, each alert is one JSON object, for a log shipper to parse.
 
+### Holding the version
+
+A Falco upgrade can change the default rules and the settings in `falco.yaml` under you, so by default the circuit holds `falco` at `falco_version`, and a routine `apt upgrade` or `dnf upgrade` leaves it alone. On Debian and Ubuntu that's a pin in `/etc/apt/preferences.d/falco`. On Rocky Linux and Fedora it's a dnf versionlock, with the versionlock plugin installed on Rocky. Changing `falco_version` moves the hold and installs the new version in one apply. Set `hold_package = false` to release it.
+
 ### The signing key
 
 The key in `files/falcosecurity-packages.asc` is the one Falco has signed its packages with since it rotated keys in January 2026, fingerprint `478B 2FBB C75F 4237 B731 DA43 6510 6822 B35B 1B1F`, as [Falco's announcement](https://falco.org/blog/gpg-key-rotation-2026/) lists it. It expires on 10 December 2028. When Falco rotates again, a new release of this circuit will carry the new key.
@@ -106,7 +110,6 @@ The key in `files/falcosecurity-packages.asc` is the one Falco has signed its pa
 
 - It doesn't send alerts anywhere but the journal. Falcosidekick, HTTP output and the rest are Falco settings this circuit leaves alone.
 - It doesn't use the kernel module driver, for the reasons in [What it needs from the kernel](#what-it-needs-from-the-kernel).
-- It doesn't hold the package back. `falco` comes from Falco's repository, so a manual `apt upgrade` or `dnf upgrade` can move it past `falco_version`, and the next plan shows the difference.
 - It doesn't support other distributions or releases, and the plan stops on them. Falco's packages may well work there, but they haven't been tested here.
 - Deleting the module leaves Falco installed and running.
 
@@ -121,6 +124,7 @@ The key in `files/falcosecurity-packages.asc` is the one Falco has signed its pa
 | `ssh_known_hosts_file` | string | `null` | known_hosts file to check host keys against. When null, `~/.ssh/known_hosts`. Not used for a host object with `host_key`. |
 | `ssh_become` | bool | `false` | Run commands as root through sudo. Set it when `ssh_user` isn't root. |
 | `falco_version` | string | `"0.45.2"` | Falco release to install from Falco's repository. |
+| `hold_package` | bool | `true` | Hold `falco` at `falco_version` through `apt upgrade` and `dnf upgrade`. False releases the hold. |
 | `priority` | string | `"debug"` | Lowest priority of alert to log, from `emergency`, `alert`, `critical`, `error`, `warning`, `notice`, `informational` and `debug`. |
 | `json_output` | bool | `false` | Log each alert as a JSON object. |
 | `rules` | string | `""` | Falco rules of your own, as YAML. Empty removes the file. |
@@ -139,7 +143,7 @@ Requires Conn3x v0.7.0 or later and systemd on each host, on x86_64 or aarch64, 
 
 ## Tested on
 
-Ubuntu 24.04, Debian 13, Rocky Linux 10 and Fedora 45, with Falco 0.45.2. [examples/local](examples/local) was applied to each in a privileged container on arm64, on a 7.1 kernel, and CI does the same on amd64: it checks that the second plan has no changes, that the health webserver listens on loopback only and falcoctl's rule updates are masked, then reads `/etc/shadow` and a canary file, and checks Falco logged the default rule's alert for one and the example's own rule for the other. It then restarts the container, checks Falco came back, and reads both again. In a container, a rule that didn't compile failed the apply and left the old rules and the running Falco alone, and emptying `rules` removed the file with no changes on the next plan.
+Ubuntu 24.04, Debian 13, Rocky Linux 10 and Fedora 45, with Falco 0.45.2. [examples/local](examples/local) was applied to each in a privileged container on arm64, on a 7.1 kernel, and CI does the same on amd64: it checks that the second plan has no changes, that the health webserver listens on loopback only and falcoctl's rule updates are masked, then reads `/etc/shadow` and a canary file, and checks Falco logged the default rule's alert for one and the example's own rule for the other. It then restarts the container, checks Falco came back, and reads both again, and last applies `hold_package = false` and checks the hold is gone. Locally, on all four, a held Falco 0.45.1 stayed put through `apt upgrade` or `dnf upgrade`, moved to 0.45.2 when `falco_version` changed, and was released and held again with no changes left on the next plan. In a container, a rule that didn't compile failed the apply and left the old rules and the running Falco alone, and emptying `rules` removed the file with no changes on the next plan.
 
 On Ubuntu 24.04, Debian 13 and Rocky Linux 10 droplets with SELinux enforcing, all `s-1vcpu-1gb`, the example was applied and the same check passed. After a reboot Falco was running, the plan had no changes and the check passed again. With `/sys/kernel/btf` hidden on the Debian droplet, the kernel check stopped the apply with its error.
 

@@ -44,6 +44,12 @@ variable "falco_version" {
   }
 }
 
+variable "hold_package" {
+  type        = bool
+  default     = true
+  description = "Hold falco at falco_version, so apt upgrade or dnf upgrade leaves it there: an apt pin on Debian and Ubuntu, a dnf versionlock on Rocky Linux and Fedora. False releases the hold."
+}
+
 variable "priority" {
   type        = string
   default     = "debug"
